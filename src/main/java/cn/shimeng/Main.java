@@ -1,6 +1,5 @@
 package cn.shimeng;
 
-import javafx.util.Pair;
 import org.objectweb.asm.ClassReader;
 import org.objectweb.asm.Opcodes;
 import org.objectweb.asm.tree.ClassNode;
@@ -14,15 +13,14 @@ import java.io.PrintWriter;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.Enumeration;
-import java.util.Objects;
-import java.util.Scanner;
+import java.util.*;
 import java.util.jar.JarEntry;
 import java.util.jar.JarFile;
 
 public class Main {
     private static final String SDK_HEADER = "##pragma once\n\ninclude <SDK.hpp>\n";
     private static final String CPP_INCLUDE_TEMPLATE = "#include \"%s.hpp\"\n";
+    private static final HashMap<String, ClassNode> classes = new HashMap<>();
 
     public static void main(String[] args) throws IOException {
 /*        if (args.length != 1) {
@@ -53,22 +51,42 @@ public class Main {
             Enumeration<JarEntry> entries = jarFile.entries();
             while (entries.hasMoreElements()) {
                 JarEntry entry = entries.nextElement();
-                if (entry.getName().startsWith(gameStartPath) && entry.getName().endsWith(".class")) {
+                if (entry.getName().endsWith(".class")) {
                     try (InputStream is = jarFile.getInputStream(entry)) {
                         ClassReader classReader = new ClassReader(is);
                         ClassNode classNode = new ClassNode();
                         classReader.accept(classNode, 0);
-
-                        String className = classNode.name.replace('/', '.');
-                        String outputPath = className.replace('.', '/');
-                        System.out.println("Process:" + className);
-                        generateCppFiles(outputDir, classNode, outputPath);
+                        classes.put(classNode.name, classNode);
                     }
                 }
             }
         }
+        classes.forEach((name, node) -> {
+            String outputPath = name.replace('.', '/');
+            if (outputPath.startsWith(gameStartPath)) {
+                System.out.println("Process:" + name);
+                try {
+                    generateCppFiles(outputDir, node, outputPath);
+                } catch (Exception e) {
+                    e.printStackTrace();
+                }
+            }
+        });
         long etime = System.currentTimeMillis();
         System.out.printf("%d ms.", (etime - stime));
+    }
+
+    private static ArrayList<String> analyze(final ClassNode superClass) {
+        final ArrayList<String> ignoredMethod = new ArrayList<>();
+        if (superClass != null) {
+            System.out.println(String.format("listing %s", superClass.name));
+            if (superClass.superName != null) ignoredMethod.addAll(analyze(classes.get(superClass.superName)));
+            for (final MethodNode method : superClass.methods) {
+                if ("<clinit>".equals(method.name) || "<init>".equals(method.name)) continue;
+                ignoredMethod.add(method.name + method.desc);
+            }
+        }
+        return ignoredMethod;
     }
 
     private static void generateCppFiles(File outputDir, ClassNode classNode, String outputPath) throws IOException {
@@ -99,6 +117,10 @@ public class Main {
 
                 headerWriter.printf("/* %s */\n\n",field.desc);
             }
+            ArrayList<String> ignoredMethod = new ArrayList<>();
+            if (classNode.superName != null) {
+                ignoredMethod = analyze(classes.get(classNode.superName));
+            }
 
             for (MethodNode method : classNode.methods) {
                 if ("<clinit>".equals(method.name) || "<init>".equals(method.name)){
@@ -107,6 +129,7 @@ public class Main {
                 if (method.name.contains("lambda")){
                     continue;
                 }
+                if (ignoredMethod.contains(method.name + method.desc)) continue;
                 boolean isStatic = (method.access & Opcodes.ACC_STATIC) != 0;
                 String lambdaFuncBody =
                         String.format("return SRGParser::get().getObfuscatedMethodName(\"%s\", \"%s\", \"%s\").first",
