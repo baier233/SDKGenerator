@@ -69,7 +69,7 @@ public class SDKGeneratorPipe extends NamePipe {
 	@Override
 	public void process(ClassesResolver blastObfuscate, ClassNode classNode) throws Exception {
 		HashMap<String,String> pairList = getImplementedMethods(blastObfuscate,classNode);
-		final var ignored = analyzeExtendMethod(blastObfuscate, classNode);
+		final var ignored = analyzeExtendMethod(blastObfuscate, blastObfuscate.getNode(classNode.superName));
 		String outputPath = classNode.name.replace('.', '/');
 		File headerFile = new File(blastObfuscate.getOutputDir(), outputPath + ".h");
 		//File sourceFile = new File(blastObfuscate.getOutputDir(), outputPath + ".cpp");
