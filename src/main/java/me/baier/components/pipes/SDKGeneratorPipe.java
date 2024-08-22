@@ -14,10 +14,7 @@ import org.objectweb.asm.tree.MethodNode;
 import java.io.File;
 import java.io.IOException;
 import java.io.PrintWriter;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Objects;
+import java.util.*;
 import java.util.zip.ZipOutputStream;
 
 public class SDKGeneratorPipe extends NamePipe {
@@ -31,6 +28,26 @@ public class SDKGeneratorPipe extends NamePipe {
 	public void init(ClassesResolver blastObfuscate, ClassNode classNode) {
 
 	}
+
+	private final HashMap<String, HashSet<String>> cachedClassNodeMethod = new HashMap<>();
+
+	private HashSet<String> analyzeExtendMethod(final ClassesResolver blastObfuscate, final ClassNode superClass) {
+		final HashSet<String> ignoredMethod = new HashSet<>();
+		if (superClass != null) {
+			if (superClass.superName != null) ignoredMethod.addAll(analyzeExtendMethod(blastObfuscate, blastObfuscate.getNode(superClass.superName)));
+			if (cachedClassNodeMethod.get(superClass.name) == null) {
+				for (final var method : superClass.methods) {
+					if ("<clinit>".equals(method.name) || "<init>".equals(method.name)) continue;
+					ignoredMethod.add(method.name + method.desc);
+				}
+				cachedClassNodeMethod.put(superClass.name, ignoredMethod);
+			} else {
+				return cachedClassNodeMethod.get(superClass.name);
+			}
+		}
+		return ignoredMethod;
+	}
+
 	HashMap<String,String> getImplementedMethods(ClassesResolver blastObfuscate, ClassNode classNode){
 		HashMap<String,String> result = new HashMap<>();
 		if (classNode == null) return result;
@@ -48,18 +65,19 @@ public class SDKGeneratorPipe extends NamePipe {
 		}
 		return result;
 	}
+
 	@Override
 	public void process(ClassesResolver blastObfuscate, ClassNode classNode) throws Exception {
 		HashMap<String,String> pairList = getImplementedMethods(blastObfuscate,classNode);
+		final var ignored = analyzeExtendMethod(blastObfuscate, classNode);
 		String outputPath = classNode.name.replace('.', '/');
 		File headerFile = new File(blastObfuscate.getOutputDir(), outputPath + ".h");
-		File sourceFile = new File(blastObfuscate.getOutputDir(), outputPath + ".cpp");
+		//File sourceFile = new File(blastObfuscate.getOutputDir(), outputPath + ".cpp");
 
 		headerFile.getParentFile().mkdirs();
-		sourceFile.getParentFile().mkdirs();
+		//sourceFile.getParentFile().mkdirs();
 
-		try (PrintWriter headerWriter = new PrintWriter(headerFile);
-		     PrintWriter sourceWriter = new PrintWriter(sourceFile)) {
+		try (PrintWriter headerWriter = new PrintWriter(headerFile)) {
 
 
 			headerWriter.println(SDK_HEADER);
@@ -93,12 +111,15 @@ public class SDKGeneratorPipe extends NamePipe {
 				if (method.name.contains("lambda")){
 					continue;
 				}
+
 				String nameClass = pairList.getOrDefault(method.name+method.desc,null);
 				if (nameClass == null) {
 					nameClass = classNode.name;
 				}else if (!(Objects.equals(classNode.name, nameClass))){
 					System.out.println("Replace "+classNode.name + " into "+ nameClass);
 				}
+
+				if (ignored.contains(method.name + method.desc)) continue;
 
 				if (isConstructor){
 					Pair<String,String> returnValue = parseDescriptor(method.desc);
@@ -122,7 +143,7 @@ public class SDKGeneratorPipe extends NamePipe {
 
 			headerWriter.println("END_KLASS_DEF();");
 
-			sourceWriter.printf(CPP_INCLUDE_TEMPLATE, classNode.name);
+			//sourceWriter.printf(CPP_INCLUDE_TEMPLATE, classNode.name);
 		}
 	}
 
@@ -130,8 +151,6 @@ public class SDKGeneratorPipe extends NamePipe {
 	public void finish(ClassesResolver blastObfuscate, ZipOutputStream outputStream) throws IOException {
 
 	}
-
-
 
 	public static Pair<String,String> parseDescriptor(String descriptor) {
 		String parameters = descriptor.substring(1, descriptor.indexOf(')'));
@@ -161,6 +180,7 @@ public class SDKGeneratorPipe extends NamePipe {
 		}
 		return parmaBuilder.toString();
 	}
+
 	private static String parseDesc(String desc) {
 		if (desc== null || desc.length() == 0) return "";
 		if (desc.startsWith("[")) {
