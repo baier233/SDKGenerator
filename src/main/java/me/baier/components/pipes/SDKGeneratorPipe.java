@@ -87,7 +87,7 @@ public class SDKGeneratorPipe extends NamePipe {
 			for (FieldNode field : classNode.fields) {
 				boolean isStatic = (field.access & Opcodes.ACC_STATIC) != 0;
 				String lambdaFuncBody =
-						String.format("return SRGParser::get().getObfuscatedFieldName(SRGParser::get().getObfuscatedClassName(\"%s\"), \"%s\")",
+						String.format("return SRGParser::get().getObfuscatedFieldName(\"%s\", \"%s\")",
 								classNode.name, field.name);
 
 				headerWriter.printf("JNI::Field<%s, %s ,DECLARE_NAME(\n" +
